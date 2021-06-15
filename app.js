@@ -27,13 +27,29 @@ sequelize.authenticate().then(() => {
   });
 
   // READ
-  app.get("/api/nodes", function(request, response){
-    AppNodeModel.findAll({ raw: true }).then((dbResponse) => {
+  app.get("/api/nodes", async function(request, response){
+    const { offset, limit, whereNameIsLike } = request.query;
+    try {
+      let dbResponse;
+      if (whereNameIsLike) {
+        dbResponse = await AppNodeModel.findAll({
+          raw: true,
+          where: {
+            name: {
+              [Sequelize.Op.iLike]: '%' + whereNameIsLike + '%'
+            },
+          }});
+      } else
+      if (offset && limit) {
+        dbResponse = await AppNodeModel.findAll({ raw: true, offset, limit });
+      } else {
+        dbResponse = await AppNodeModel.findAll({ raw: true });
+      }
       response.status(200).json(dbResponse);
-    }, (dbError) => {
+    } catch (dbError) {
       const errorType = JSON.parse(JSON.stringify(dbError)).name;
       response.status(500).json({ error: 'error', message: errorType });
-    });
+    }
   });
 
   app.get("/api/nodes/null", function(request, response){
@@ -49,24 +65,8 @@ sequelize.authenticate().then(() => {
       });
   });
 
-  app.get("/api/nodes/where/", function(request, response){
-    const { name } = request.query;
-    AppNodeModel.findAll({
-      raw: true,
-      where: {
-        name: {
-          [Sequelize.Op.iLike]: '%' + name+ '%'
-        },
-      }}).then((dbResponse) => {
-        response.status(200).json(dbResponse);
-      }, (dbError) => {
-        const errorType = JSON.parse(JSON.stringify(dbError)).name;
-        response.status(500).json({ error: 'error', message: errorType });
-      });
-  });
-
   // CREATE
-  app.post("/api/nodes/create/", jsonParser, function(request, response) {
+  app.post("/api/nodes/", jsonParser, function(request, response) {
     const { name, parentId, IP, port } = request.body;
     AppNodeModel.create({ name,
       parentId,
@@ -96,7 +96,7 @@ sequelize.authenticate().then(() => {
   });
 
   // UPDATE
-  app.put("/api/nodes/update/:id", jsonParser, function(request, response) {
+  app.put("/api/nodes/:id", jsonParser, function(request, response) {
     const { id } = request.params;
     const { name, parentId, IP, port } = request.body;
     console.log({ id, name, parentId, IP, port })
@@ -120,7 +120,7 @@ sequelize.authenticate().then(() => {
   });
 
   // DELETE
-  app.delete("/api/nodes/delete/:id", jsonParser, function(request, response) {
+  app.delete("/api/nodes/:id", jsonParser, function(request, response) {
     const { id } = request.params;
     AppNodeModel.destroy({
       where: {
