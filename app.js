@@ -45,7 +45,8 @@ sequelize.authenticate().then(() => {
       } else {
         dbResponse = await AppNodeModel.findAll({ raw: true });
       }
-      response.status(200).json(dbResponse);
+      const allCount = await AppNodeModel.count();
+      response.status(200).json({ dbResponse, allCount });
     } catch (dbError) {
       const errorType = JSON.parse(JSON.stringify(dbError)).name;
       response.status(500).json({ error: 'error', message: errorType });
@@ -141,7 +142,37 @@ sequelize.authenticate().then(() => {
 
 
 
+const WebSocket = require('ws');
+const wsServer = new WebSocket.Server({ port: 9000 });
 
+const wsClients = [];
+let currentValue = 0;
+
+function onConnect(wsClient) {
+  wsClient.send(JSON.stringify({ action: 'SET_VALUE', value: currentValue }));
+  wsClients.push(wsClient);
+
+  wsClient.on('message', function(msg) {
+    const message = JSON.parse(msg);
+      console.log('--->', message);
+      if (message.action === 'SEND_VALUE') {
+        const { value } = message;
+        currentValue = value;
+        wsClients.forEach((wsClient) => {
+          try {
+            wsClient.send(JSON.stringify({ action: 'SET_VALUE', value: currentValue }));
+          } catch (error) {
+            console.error(error);
+          }
+        });
+      }
+  });
+  wsClient.on('close', function() {
+      console.log('Пользователь отключился');
+    });
+  };
+
+wsServer.on('connection', onConnect);
 
 
 
