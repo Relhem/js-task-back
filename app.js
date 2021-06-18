@@ -145,32 +145,81 @@ sequelize.authenticate().then(() => {
 const WebSocket = require('ws');
 const wsServer = new WebSocket.Server({ port: 9000 });
 
-const wsClients = [];
-let currentValue = 0;
+const wsClients = new Map();
+
+const serverData = {
+  currentValue: 0,
+  usernames: {},
+  messageId: 0,
+};
+
+function send( wsClient, { action, value }) {
+  wsClient.send(JSON.stringify({ action, value }));
+}
 
 function onConnect(wsClient) {
-  wsClient.send(JSON.stringify({ action: 'SET_VALUE', value: currentValue }));
-  wsClients.push(wsClient);
+  wsClient.send(JSON.stringify({ action: 'SET_VALUE', value: serverData.currentValue }));
 
+  let username = null;
+  const uniqueId = require("crypto").randomBytes(64).toString('hex');
+  wsClient.send(JSON.stringify({ action: 'SET_CONNECTION_ID', value: uniqueId }));
+  
+  wsClients.set(uniqueId, wsClient);
+  
   wsClient.on('message', function(msg) {
     const message = JSON.parse(msg);
       console.log('--->', message);
+
+      if (message.action === 'SEND_MESSAGE') {
+        const broadcast = () => {
+          wsServer.clients.forEach((_wsClient) => {
+            const value = {
+              message: message.value.message,
+              sentBy: serverData.usernames[message.value.connectionId],
+              messageId: serverData.messageId,
+            };
+            serverData.messageId += 1;
+            console.log(value);
+            send(_wsClient, { action: 'MESSAGE_FROM_SERVER', value });
+          });
+        };
+        broadcast();
+      }
+
+      if (message.action === 'USER_ENTER') {
+        const { value } = message;
+        let usernameIsAvailable = true;
+        Object.keys(serverData.usernames).forEach((uniqueId) => {
+          const _username = serverData.usernames[uniqueId];
+          if (_username == value.username) usernameIsAvailable = false;
+        });
+        if (usernameIsAvailable) {
+          serverData.usernames[uniqueId] = value.username;
+          const users = Object.keys(serverData.usernames).map((uniqueId) => serverData.usernames[uniqueId]);
+
+          send(wsClient, { action: 'USER_ENTER_SUCCESS', value: { username: value.username, users } });
+        } else send(wsClient, { action: 'USER_ENTER_FAIL' });
+      }
+
       if (message.action === 'SEND_VALUE') {
         const { value } = message;
-        currentValue = value;
-        wsClients.forEach((wsClient) => {
+        serverData.currentValue = value;
+        wsServer.clients.forEach((_wsClient) => {
           try {
-            wsClient.send(JSON.stringify({ action: 'SET_VALUE', value: currentValue }));
+            _wsClient.send(JSON.stringify({ action: 'SET_VALUE', value: serverData.currentValue }));
           } catch (error) {
             console.error(error);
           }
         });
       }
   });
-  wsClient.on('close', function() {
-      console.log('Пользователь отключился');
-    });
-  };
+  wsClient.on('close', function(wsClient) {
+      console.log(wsClient);
+      wsClients.delete(uniqueId);
+      delete serverData.usernames[uniqueId];
+      console.log(`Пользователь ${uniqueId} отключился`);
+  });
+};
 
 wsServer.on('connection', onConnect);
 
